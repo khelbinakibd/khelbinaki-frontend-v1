@@ -1,0 +1,41 @@
+{
+  "name": "khelbiNaki",
+  "short_name": "khelbiNaki",
+  "description": "Book premium turf and football fields easily online",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#10b981",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/khelbiNakiLogo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/khelbiNakiLogo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["sports", "business", "lifestyle"],
+  "shortcuts": [
+    {
+      "name": "Book Now",
+      "short_name": "Book",
+      "description": "Quick booking access",
+      "url": "/turfs",
+      "icons": [{ "src": "/khelbiNakiLogo.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "My Bookings",
+      "short_name": "Bookings",
+      "description": "View your bookings",
+      "url": "/dashboard/bookings",
+      "icons": [{ "src": "/khelbiNakiLogo.png", "sizes": "96x96" }]
+    }
+  ]
+}
