@@ -61,15 +61,21 @@ const Navbar = () => {
             >
               <Link to="/" className="flex items-center gap-2.5">
                 <div className="relative">
-                  <div className="w-10 h-10 md:w-12 md:h-12 bg-gradient-to-br from-green-600 via-green-700 to-green-800 rounded-xl md:rounded-2xl flex items-center justify-center shadow-lg shadow-green-600/30 transition-all duration-300 group-hover:shadow-green-600/50">
-                    <span className="text-lg md:text-2xl font-black text-white tracking-tight">
-                      KN
+                  <div className="w-12 h-12 md:w-18 md:h-18 rounded-xl md:rounded-2xl flex items-center justify-center">
+                    <span>
+                      <a href="/">
+                        <img
+                          src="/khelbiNakiLogo.png"
+                          className="text-lg md:text-2xl font-black text-white tracking-tight"
+                          alt="Logo"
+                        />
+                      </a>
                     </span>
                   </div>
                   <div className="absolute -inset-1 bg-gradient-to-r from-green-400 to-green-600 rounded-xl md:rounded-2xl blur opacity-0 group-hover:opacity-30 transition-opacity duration-300"></div>
                 </div>
                 <span className="text-lg md:text-xl font-bold bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent tracking-tight">
-                  khelbi<span className="text-green-600">Naki</span>
+                  Khelbi <span className="text-sm md:text-base text-green-600">নাকি</span>
                 </span>
               </Link>
             </motion.div>

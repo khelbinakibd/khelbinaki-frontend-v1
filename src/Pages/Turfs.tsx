@@ -19,12 +19,12 @@ const Turfs: React.FC = () => {
       <div className="p-2">
 
  <div className="text-center my-8">
-       <h2 className="text-4xl md:text-6xl font-bold text-center mb-4 text-green-700">
-        Our<span className="italic text-yellow-500"> Turfs</span>
+       {/* <h2 className="text-4xl md:text-6xl font-bold text-center mb-4 text-green-700">
+        Our<span className="text-black"> Turfs</span>
       </h2>
       <p className="text-lg leading-7 text-gray-500 italic text-center px-3 md:w-2/3 mx-auto w-full mb-10">
-  Choose your favorite turf and make every game unforgettable.
-</p>
+        Choose your favorite turf and make every game unforgettable.
+      </p> */}
 
         {/* Search Section */}
         <div className="flex justify-center items-center  gap-2">

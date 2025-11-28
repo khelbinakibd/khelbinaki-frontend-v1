@@ -39,9 +39,9 @@ const DashboardLayout = () => {
       <div className="p-4 border-b border-green-600/40">
         <div className="flex items-center justify-between mt-16">
           <Link to="/" className="flex items-center gap-3">
-            <img src="/khelbiNakiLogo.png" alt="Logo" className="w-8 h-8 rounded-lg bg-white p-1" />
+            <img src="/khelbiNakiLogo.png" alt="Logo" className="w-10 h-10 rounded-lg bg-white p-1" />
             {!isCollapsed && (
-              <span className="font-bold text-lg tracking-wide">khelbiNaki</span>
+              <span className="font-bold text-lg tracking-wide">KhelbiNaki</span>
             )}
           </Link>
           <button

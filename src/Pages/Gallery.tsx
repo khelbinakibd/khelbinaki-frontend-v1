@@ -16,14 +16,14 @@ const GallerySlider: React.FC = () => {
   return (
     <div className="min-h-screen py-16 px-4">
       {/* Title */}
-      <div className="text-center">
+      {/* <div className="text-center">
         <h2 className="text-4xl md:text-6xl font-bold text-center mb-2 sm:mb-4 text-green-700">
           Turf <span className="italic text-yellow-500">Images</span>
         </h2>
         <p className="text-lg leading-7 text-gray-500 italic text-center px-3 md:w-2/3 mx-auto w-full mb-10">
           Enjoy Our Turf image
         </p>
-      </div>
+      </div> */}
 
       {/* Row 1 - Left to Right */}
       <div className="overflow-hidden">
@@ -41,7 +41,7 @@ const GallerySlider: React.FC = () => {
 
       {/* Row 2 - Right to Left */}
       <div className="overflow-hidden mt-10">
-        <div className="flex gap-6 animate-slide-right">
+        <div className="flex gap-6 animate-slide-right translate-x-[-50%]">
           {[...imagesRow2, ...imagesRow2].map((src, i) => (
             <img
               key={i}
@@ -53,6 +53,22 @@ const GallerySlider: React.FC = () => {
           ))}
         </div>
       </div>
+      
+      {/* <div className="min-h-screen py-16 px-4"> */}
+        {/* Single row slider */}
+        {/* <div className="overflow-hidden">
+          <div className="flex gap-6 animate-slide-left">
+            {[...imagesRow1, ...imagesRow2, ...imagesRow1, ...imagesRow2].map((src, i) => (
+              <img
+                key={i}
+                src={src}
+                alt={`slider-${i}`}
+                className=" h-100 sm:h-160 object-cover rounded shadow-md transition-transform duration-100 hover:scale-105"
+              />
+            ))}
+          </div>
+        </div> */}
+      {/* </div> */}
     </div>
   );
 };

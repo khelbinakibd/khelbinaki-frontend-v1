@@ -31,6 +31,7 @@ const LocationSection = ({ turf }: LocationSectionProps) => {
               title="Turf Location"
               loading="lazy"
               allowFullScreen
+              referrerPolicy="no-referrer-when-downgrade"
             />
           </div>
         ) : (
