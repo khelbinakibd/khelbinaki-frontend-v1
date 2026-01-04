@@ -4,6 +4,10 @@ import { Swiper, SwiperSlide } from "swiper/react";
 // import slider2 from "../assets/slider2.jpg";
 // import slider3 from "../assets/slider3.webp";
 
+// Import banner images
+import logobannerWhite from "../assets/logobanner-white.png";
+import logobanner from "../assets/logobanner.png";
+
 // Import Swiper styles
 import "swiper/css";
 import "swiper/css/pagination";
@@ -48,14 +52,14 @@ export default function Slider() {
         </SwiperSlide> */}
         <SwiperSlide>
           <img
-            src={"/src/assets/logobanner-white.png"}
+            src={logobannerWhite}
             alt="Slide 1"
             className="h-80 w-full object-cover rounded-xl"
           />
         </SwiperSlide>
         <SwiperSlide>
           <img
-            src={"/src/assets/logobanner.png"}
+            src={logobanner}
             alt="Slide 1"
             className="h-80 w-full object-cover rounded-xl"
           />
