@@ -25,7 +25,7 @@ export default function Slider() {
         modules={[Autoplay, Pagination]}
         className="rounded-xl shadow-lg"
       >
-        <SwiperSlide>
+        {/* <SwiperSlide>
           <img
             src={"https://www.shutterstock.com/image-vector/soccer-template-design-football-banner-260nw-2185778153.jpg"}
             alt="Slide 1"
@@ -43,6 +43,20 @@ export default function Slider() {
           <img
             src={"https://img.freepik.com/premium-vector/football-soccer-abstract-background-football-tournament-soccer-cup-green-field_731129-38.jpg"}
             alt="Slide 3"
+            className="h-80 w-full object-cover rounded-xl"
+          />
+        </SwiperSlide> */}
+        <SwiperSlide>
+          <img
+            src={"/src/assets/logobanner-white.png"}
+            alt="Slide 1"
+            className="h-80 w-full object-cover rounded-xl"
+          />
+        </SwiperSlide>
+        <SwiperSlide>
+          <img
+            src={"/src/assets/logobanner.png"}
+            alt="Slide 1"
             className="h-80 w-full object-cover rounded-xl"
           />
         </SwiperSlide>

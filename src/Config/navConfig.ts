@@ -20,6 +20,7 @@ export const navConfig = {
     { path: "/dashboard/profile", label: "Profile Management", icon: UserPen },
     { path: "/dashboard/admin/bookings", label: "Booking Management", icon: ClipboardList },
     { path: "/dashboard/admin/reports", label: "Manage Reports", icon: Bug },
+    { path: "/dashboard/manager/turfs", label: "Manage Turfs", icon: Building2 },
     // { path: "/dashboard/reports", label: "Reports", icon: FileBarChart }
   ],
   manager: [

@@ -52,6 +52,17 @@ export interface User {
 export type PricingRule = z.infer<typeof createTurfSchema>["pricingRules"][0];
 export type TimeSlot = PricingRule["timeSlots"][0];
 
+export interface Facility {
+	_id: string;
+	name: string;
+	turf: string;
+	pricingRules: PricingRule[]; // Required - facility must have pricing rules
+	defaultPricePerSlot?: number; // Optional - display-only fallback
+	isActive: boolean;
+	createdAt: string;
+	updatedAt: string;
+}
+
 export interface Turf {
 	_id: string;
 	name: string;
@@ -68,10 +79,12 @@ export interface Turf {
 		start: string;
 		end: string;
 	};
-	defaultPricePerSlot: number;
-	pricingRules: PricingRule[];
+	capacity?: number;
+	defaultPricePerSlot?: number; // Deprecated - not used, kept for backward compatibility
+	pricingRules?: PricingRule[]; // Deprecated - not used, kept for backward compatibility
 	isActive: boolean;
 	admins: User[];
+	facilities?: Facility[];
 	createdAt: string;
 	updateAt: string;
 }
@@ -81,6 +94,8 @@ export interface Booking {
 	_id: string;
 	user: string | User;
 	turf: string | Turf;
+	facility: string;
+	facilityName?: string;
 	date: string;
 	startTime: string;
 	endTime: string;

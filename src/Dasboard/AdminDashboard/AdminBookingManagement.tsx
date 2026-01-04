@@ -22,6 +22,8 @@ interface Booking {
   _id: string;
   user: User;
   turf: Turf;
+  facility: string | { _id: string; name: string };
+  facilityName?: string;
   date: string;
   startTime: string;
   transactionId: string;
@@ -237,6 +239,9 @@ const AdminBookingManagement = () => {
                     User & Turf
                   </th>
                   <th className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
+                    Facility
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
                     Schedule
                   </th>
                   <th className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
@@ -279,6 +284,13 @@ const AdminBookingManagement = () => {
                       </p>
                       <p className="text-xs text-gray-500">
                         {booking.turf?.name}
+                      </p>
+                    </td>
+                    <td className="px-6 py-5">
+                      <p className="text-sm font-medium text-gray-800">
+                        {typeof booking.facility === 'object' 
+                          ? booking.facility?.name 
+                          : booking.facilityName || "N/A"}
                       </p>
                     </td>
                     <td className="px-6 py-5">

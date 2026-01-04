@@ -50,6 +50,7 @@ export const resetPasswordSchema = z.object({
 export const createBookingSchema = z
 	.object({
 		turf: z.string(),
+		facility: z.string().min(1, "Facility is required"),
 		date: z
 			.date({
 				error: "Please select a date",

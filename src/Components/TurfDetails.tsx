@@ -12,6 +12,7 @@ import type {
   Booking,
   TurfAvailability,
   AvailabilitySlot,
+  Facility,
 } from "../types/api.types";
 import api from "../lib/api";
 import { useAuth } from "../Hooks/useAuth";
@@ -30,6 +31,8 @@ import { formatDateForApi } from "./TurfDetails/helpers";
 
 const TurfDetails = () => {
   const { slug } = useParams();
+  const [selectedFacility, setSelectedFacility] = useState<string>("");
+  const [selectedFacilityData, setSelectedFacilityData] = useState<Facility | null>(null);
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<null | LocalSlot>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
@@ -87,21 +90,63 @@ const TurfDetails = () => {
     enabled: !!slug,
   });
 
+  // Fetch facilities for the turf
+  const { data: facilitiesData } = useQuery<ApiResponse<Facility[]>>({
+    queryKey: ["facilities", data?.data?._id],
+    queryFn: async () => {
+      if (!data?.data?._id) throw new Error("Turf ID not available");
+      const response = await api.get<ApiResponse<Facility[]>>(`/turfs/${data.data._id}/facilities`);
+      return response.data;
+    },
+    enabled: !!data?.data?._id,
+  });
+
+  const facilities = facilitiesData?.data || [];
+
+  // Fetch selected facility details (with pricing)
+  const { data: facilityDetailsData } = useQuery<ApiResponse<Facility>>({
+    queryKey: ["facility", selectedFacility],
+    queryFn: async () => {
+      if (!selectedFacility) throw new Error("No facility selected");
+      const response = await api.get<ApiResponse<Facility>>(`/facilities/${selectedFacility}`);
+      return response.data;
+    },
+    enabled: !!selectedFacility,
+  });
+
+  useEffect(() => {
+    if (facilityDetailsData?.data) {
+      setSelectedFacilityData(facilityDetailsData.data);
+    } else {
+      setSelectedFacilityData(null);
+    }
+  }, [facilityDetailsData]);
+
+  // Reset date and time slot when facility changes
+  useEffect(() => {
+    setSelectedDate(() => {
+      const today = new Date();
+      return new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0, 0, 0);
+    });
+    setSelectedTimeSlot(null);
+    setSelectedFacilityData(null);
+  }, [selectedFacility]);
+
   const {
     data: availability,
     isLoading: isAvailabilityLoading,
     refetch: refetchAvailability,
   } = useQuery<TurfAvailability | null>({
-    queryKey: ["turf-availability", data?.data?._id, selectedDate?.toDateString()],
+    queryKey: ["turf-availability", data?.data?._id, selectedFacility, selectedDate?.toDateString()],
     queryFn: async (): Promise<TurfAvailability | null> => {
-      if (!selectedDate || !data?.data?._id) return null;
+      if (!selectedDate || !data?.data?._id || !selectedFacility) return null;
       const dateStr = formatDateForApi(selectedDate);
       const response = await api.get<ApiResponse<TurfAvailability>>(`/turfs/${data.data._id}/availability`, {
-        params: { date: dateStr },
+        params: { date: dateStr, facility: selectedFacility },
       });
       return response.data.data ?? null;
     },
-    enabled: !!selectedDate && !!data?.data?._id,
+    enabled: !!selectedDate && !!data?.data?._id && !!selectedFacility,
     refetchOnWindowFocus: true,
     staleTime: 0,
     gcTime: 0,
@@ -139,7 +184,7 @@ const TurfDetails = () => {
         queryKey: ["turfDetails", slug],
       });
       queryClient.invalidateQueries({
-        queryKey: ["turf-availability", data?.data?._id, selectedDate?.toDateString()],
+        queryKey: ["turf-availability", data?.data?._id, selectedFacility, selectedDate?.toDateString()],
       });
       refetchAvailability();
     },
@@ -150,30 +195,8 @@ const TurfDetails = () => {
     },
   });
 
-  const getPriceForTime = useCallback(
-    (time: string, dateForPrice: Date) => {
-      if (!data?.data?.pricingRules) return data?.data?.defaultPricePerSlot || 2000;
-
-      const dayType = getCurrentDayType(dateForPrice);
-      const rule = data.data.pricingRules.find((r) => r.dayType === dayType);
-
-      if (!rule) return data?.data?.defaultPricePerSlot || 2000;
-
-      const timeHour = parseInt(time.split(":")[0], 10);
-
-      for (const slot of rule.timeSlots) {
-        const startHour = parseInt(slot.startTime.split(":")[0], 10);
-        const endHour = parseInt(slot.endTime.split(":")[0], 10);
-
-        if (timeHour >= startHour && timeHour < endHour) {
-          return slot.pricePerSlot;
-        }
-      }
-
-      return data?.data?.defaultPricePerSlot || 2000;
-    },
-    [data?.data?.pricingRules, data?.data?.defaultPricePerSlot]
-  );
+  // Pricing is now handled entirely by backend via availability API
+  // Frontend just displays what backend returns
 
   const generateTimeSlots = useCallback(
     (dateForSlots: Date): LocalSlot[] => {
@@ -190,12 +213,11 @@ const TurfDetails = () => {
         const endTime = `${String(hour + 1).padStart(2, "0")}:00`;
 
         const hasPassedTime = isTimeSlotPassed(startTime, dateForSlots);
-        const priceForSlot = getPriceForTime(startTime, dateForSlots);
 
         slots.push({
           startTime,
           endTime,
-          pricePerSlot: priceForSlot,
+          pricePerSlot: 0, // Will be overridden by backend pricing from availability API
           isAvailable: !hasPassedTime,
           isTimePassed: hasPassedTime,
         });
@@ -203,7 +225,7 @@ const TurfDetails = () => {
 
       return slots;
     },
-    [data?.data, getPriceForTime]
+    [data?.data]
   );
 
   const getAvailableTimeSlots = useCallback((): LocalSlot[] => {
@@ -264,6 +286,7 @@ const TurfDetails = () => {
 
       const bookingData: any = {
         turf: data.data._id,
+        facility: selectedFacility,
         date: normalizedDate,
         startTime: selectedTimeSlot.startTime,
         endTime: selectedTimeSlot.endTime,
@@ -315,18 +338,49 @@ const TurfDetails = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Booking Panel */}
           <div className="lg:col-span-1">
-            <div className="sticky top-8">
-              <BookingPanel
-                isAuthenticated={isAuthenticated}
-                selectedDate={selectedDate}
-                selectedTimeSlot={selectedTimeSlot}
-                availableSlots={availableSlots}
-                isAvailabilityLoading={isAvailabilityLoading}
-                isFormLoading={isFormLoading}
-                onDateChange={handleDateChange}
-                onTimeSlotSelect={setSelectedTimeSlot}
-                onBookingInitiate={handleBookingInitiate}
-              />
+            <div className="sticky top-8 space-y-4">
+              {/* Facility Selection */}
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                <h3 className="text-lg font-bold mb-4 text-gray-800">Select Facility</h3>
+                {facilities.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-gray-500 text-sm">No facilities available for this turf.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3">
+                    {facilities
+                      .filter((facility) => facility.isActive)
+                      .map((facility) => (
+                        <button
+                          key={facility._id}
+                          onClick={() => setSelectedFacility(facility._id)}
+                          className={`px-4 py-3 rounded-xl border-2 text-left transition-all ${
+                            selectedFacility === facility._id
+                              ? "border-emerald-500 bg-emerald-50 text-emerald-700 font-semibold"
+                              : "border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/50 text-gray-700"
+                          }`}
+                        >
+                          <span className="text-sm">{facility.name}</span>
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Booking Panel - Only show when facility is selected */}
+              {selectedFacility && (
+                <BookingPanel
+                  isAuthenticated={isAuthenticated}
+                  selectedDate={selectedDate}
+                  selectedTimeSlot={selectedTimeSlot}
+                  availableSlots={availableSlots}
+                  isAvailabilityLoading={isAvailabilityLoading}
+                  isFormLoading={isFormLoading}
+                  onDateChange={handleDateChange}
+                  onTimeSlotSelect={setSelectedTimeSlot}
+                  onBookingInitiate={handleBookingInitiate}
+                />
+              )}
             </div>
           </div>
 
@@ -334,7 +388,7 @@ const TurfDetails = () => {
           <div className="lg:col-span-2 space-y-8">
             <AboutSection turf={turf} />
             <AmenitiesSection turf={turf} />
-            <PricingSection turf={turf} />
+            {selectedFacilityData && <PricingSection turf={turf} facility={selectedFacilityData} />}
             <GallerySection images={turf.images || []} onSelectImage={setFullscreenImage} />
             <LocationSection turf={turf as any} />
           </div>

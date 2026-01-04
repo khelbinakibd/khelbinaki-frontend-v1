@@ -31,21 +31,27 @@ const UpdateTurf: React.FC = () => {
     address: "",
     city: "",
     description: "",
-    defaultPricePerSlot: "",
     startHour: "06:00",
     endHour: "23:00",
+    capacity: "",
     admins: [""],
     isActive: true,
     slug: "",
     googleMap: "",
-    bkashNumber: "", // Added bkashNumber state
-    pricingRules: [{ dayType: "all-days", startTime: "06:00", endTime: "23:00", pricePerSlot: "" }],
+    bkashNumber: "",
   });
 
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [existingImages, setExistingImages] = useState<string[]>([]);
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
+  const [facilities, setFacilities] = useState<Array<{ 
+    _id?: string; 
+    name: string; 
+    isActive: boolean; 
+    defaultPricePerSlot?: string;
+    pricingRules: PricingRule[];
+  }>>([]);
 
   // Fetch existing turf data
   const { data: turfData, isLoading: isFetchingTurf } = useQuery({
@@ -57,53 +63,83 @@ const UpdateTurf: React.FC = () => {
     enabled: !!id,
   });
 
+  // Fallback: Fetch facilities separately if not in turf response
+  const { data: facilitiesData } = useQuery({
+    queryKey: ['facilities', id],
+    queryFn: async () => {
+      const response = await api.get(`/turfs/${id}/facilities`);
+      return response.data.data || response.data;
+    },
+    enabled: !!id && (!turfData?.facilities || turfData.facilities.length === 0),
+  });
+
   // Populate form when turf data is loaded
   useEffect(() => {
     if (turfData) {
       console.log('📊 Loaded turf data:', turfData);
-      
-      // Flatten pricing rules
-      const flattenedRules: PricingRule[] = [];
-      if (turfData.pricingRules && Array.isArray(turfData.pricingRules)) {
-        turfData.pricingRules.forEach((rule: any) => {
-          if (rule.timeSlots && Array.isArray(rule.timeSlots)) {
-            rule.timeSlots.forEach((slot: any) => {
-              flattenedRules.push({
-                dayType: rule.dayType,
-                startTime: slot.startTime,
-                endTime: slot.endTime,
-                pricePerSlot: slot.pricePerSlot,
-              });
-            });
-          }
-        });
-      }
+      console.log('🏟️ Facilities in turf data:', turfData.facilities);
 
       setFormData({
         name: turfData.name || "",
         address: turfData.location?.address || "",
         city: turfData.location?.city || "",
         description: turfData.description || "",
-        defaultPricePerSlot: turfData.defaultPricePerSlot?.toString() || "",
         startHour: turfData.operatingHours?.start || "06:00",
         endHour: turfData.operatingHours?.end || "23:00",
+        capacity: turfData.capacity?.toString() || "",
         admins: turfData.admins?.length > 0 ? turfData.admins : [""],
         isActive: turfData.isActive ?? true,
         slug: turfData.slug || "",
         googleMap: turfData.googleMap || "",
-        bkashNumber: turfData.bkashNumber || "", // Populate bkashNumber
-        pricingRules: flattenedRules.length > 0
-          ? flattenedRules.map(rule => ({
-              ...rule,
-              pricePerSlot: rule.pricePerSlot.toString(),
-            }))
-          : [{ dayType: "all-days", startTime: "06:00", endTime: "23:00", pricePerSlot: "" }],
+        bkashNumber: turfData.bkashNumber || "",
       });
 
       setSelectedAmenities(turfData.amenities || []);
       setExistingImages(turfData.images || []);
+      
+      // Use facilities from turf data if available, otherwise use separately fetched facilities
+      const facilitiesToUse = (turfData.facilities && Array.isArray(turfData.facilities) && turfData.facilities.length > 0)
+        ? turfData.facilities
+        : (facilitiesData && Array.isArray(facilitiesData) ? facilitiesData : null);
+      
+      // Load existing facilities with pricing rules
+      if (facilitiesToUse && facilitiesToUse.length > 0) {
+        console.log('📋 Loading facilities:', facilitiesToUse);
+        setFacilities(facilitiesToUse.map((f: any) => {
+          // Flatten facility pricing rules
+          const flattenedRules: PricingRule[] = [];
+          if (f.pricingRules && Array.isArray(f.pricingRules)) {
+            f.pricingRules.forEach((rule: any) => {
+              if (rule.timeSlots && Array.isArray(rule.timeSlots)) {
+                rule.timeSlots.forEach((slot: any) => {
+                  flattenedRules.push({
+                    dayType: rule.dayType,
+                    startTime: slot.startTime,
+                    endTime: slot.endTime,
+                    pricePerSlot: slot.pricePerSlot.toString(),
+                  });
+                });
+              }
+            });
+          }
+          
+          return {
+            _id: f._id,
+            name: f.name || "",
+            isActive: f.isActive !== undefined ? f.isActive : true,
+            defaultPricePerSlot: f.defaultPricePerSlot?.toString() || "",
+            pricingRules: flattenedRules.length > 0 
+              ? flattenedRules 
+              : [{ dayType: "all-days", startTime: "06:00", endTime: "23:00", pricePerSlot: "" }],
+          };
+        }));
+      } else {
+        // If no facilities, start with one empty facility
+        console.log('⚠️ No facilities found, starting with empty facility');
+        setFacilities([{ name: "", isActive: true, pricingRules: [{ dayType: "all-days", startTime: "06:00", endTime: "23:00", pricePerSlot: "" }] }]);
+      }
     }
-  }, [turfData]);
+  }, [turfData, facilitiesData]);
 
   const mutation = useMutation({
     mutationFn: async (payload: any) => {
@@ -166,15 +202,6 @@ const UpdateTurf: React.FC = () => {
 
   const toggleAmenity = (key: string) => setSelectedAmenities((s) => s.includes(key) ? s.filter((k) => k !== key) : [...s, key]);
   
-  const handleRuleChange = (index: number, field: keyof PricingRule, value: string) => {
-    const updated = [...formData.pricingRules];
-    (updated[index] as any)[field] = value;
-    setFormData((s) => ({ ...s, pricingRules: updated }));
-  };
-  
-  const addRule = () => setFormData((s) => ({ ...s, pricingRules: [...s.pricingRules, { dayType: "all-days", startTime: "06:00", endTime: "23:00", pricePerSlot: "" }] }));
-  const removeRule = (index: number) => setFormData((s) => ({ ...s, pricingRules: s.pricingRules.filter((_, i) => i !== index) }));
-  
   const handleAdminChange = (index: number, value: string) => { 
     const updated = [...formData.admins]; 
     updated[index] = value; 
@@ -184,12 +211,63 @@ const UpdateTurf: React.FC = () => {
   const addAdmin = () => setFormData((s) => ({ ...s, admins: [...s.admins, ""] }));
   const removeAdmin = (index: number) => setFormData((s) => ({ ...s, admins: s.admins.filter((_, i) => i !== index) }));
   
-  const groupPricingRules = () => {
+  // Facility management functions
+  const addFacility = () => setFacilities((prev) => [...prev, { 
+    name: "", 
+    isActive: true, 
+    pricingRules: [{ dayType: "all-days", startTime: "06:00", endTime: "23:00", pricePerSlot: "" }] 
+  }]);
+  const removeFacility = (index: number) => {
+    if (facilities.length > 1) {
+      setFacilities((prev) => prev.filter((_, i) => i !== index));
+    }
+  };
+  const updateFacility = (index: number, field: "name" | "isActive" | "defaultPricePerSlot", value: string | boolean) => {
+    setFacilities((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+  const handleFacilityRuleChange = (facilityIndex: number, ruleIndex: number, field: keyof PricingRule, value: string) => {
+    setFacilities((prev) => {
+      const updated = [...prev];
+      const rules = [...updated[facilityIndex].pricingRules];
+      (rules[ruleIndex] as any)[field] = value;
+      updated[facilityIndex] = { ...updated[facilityIndex], pricingRules: rules };
+      return updated;
+    });
+  };
+  const addFacilityRule = (facilityIndex: number) => {
+    setFacilities((prev) => {
+      const updated = [...prev];
+      updated[facilityIndex] = {
+        ...updated[facilityIndex],
+        pricingRules: [...updated[facilityIndex].pricingRules, { dayType: "all-days", startTime: "06:00", endTime: "23:00", pricePerSlot: "" }]
+      };
+      return updated;
+    });
+  };
+  const removeFacilityRule = (facilityIndex: number, ruleIndex: number) => {
+    setFacilities((prev) => {
+      const updated = [...prev];
+      const rules = updated[facilityIndex].pricingRules.filter((_, i) => i !== ruleIndex);
+      if (rules.length > 0) {
+        updated[facilityIndex] = { ...updated[facilityIndex], pricingRules: rules };
+      }
+      return updated;
+    });
+  };
+  const groupFacilityPricingRules = (rules: PricingRule[]) => {
     const grouped: any = {};
-    formData.pricingRules.forEach((rule) => {
+    rules.forEach((rule) => {
       if (!rule.dayType) return;
       if (!grouped[rule.dayType]) grouped[rule.dayType] = { dayType: rule.dayType, timeSlots: [] };
-      grouped[rule.dayType].timeSlots.push({ startTime: rule.startTime, endTime: rule.endTime, pricePerSlot: Number(rule.pricePerSlot) });
+      grouped[rule.dayType].timeSlots.push({ 
+        startTime: rule.startTime, 
+        endTime: rule.endTime, 
+        pricePerSlot: Number(rule.pricePerSlot) 
+      });
     });
     return Object.values(grouped);
   };
@@ -246,23 +324,53 @@ const UpdateTurf: React.FC = () => {
       return;
     }
 
+    // Validate and format facilities with pricing rules
+    try {
+      const validFacilities = facilities
+        .filter((f) => f.name.trim() !== "")
+        .map((f) => {
+          // Validate that facility has at least one pricing rule
+          const validRules = f.pricingRules.filter((r) => r.dayType && r.startTime && r.endTime && r.pricePerSlot);
+          if (validRules.length === 0) {
+            throw new Error(`Facility "${f.name}" must have at least one valid pricing rule`);
+          }
+
+          return {
+            ...(f._id && { _id: f._id }), // Include _id if it exists (for updates)
+            name: f.name.trim(),
+            isActive: f.isActive,
+            pricingRules: groupFacilityPricingRules(f.pricingRules),
+            ...(f.defaultPricePerSlot && f.defaultPricePerSlot.trim() !== "" && {
+              defaultPricePerSlot: Number(f.defaultPricePerSlot)
+            })
+          };
+        });
+
+      if (validFacilities.length === 0) {
+        toast.error("At least one facility is required");
+      return;
+    }
+
     const payload = {
       name: formData.name,
       location: { address: formData.address, city: formData.city },
       description: formData.description,
-      defaultPricePerSlot: Number(formData.defaultPricePerSlot) || 0,
-      pricingRules: groupPricingRules(),
       operatingHours: { start: formData.startHour, end: formData.endHour },
+        capacity: formData.capacity ? Number(formData.capacity) : undefined,
       amenities: selectedAmenities,
       admins: adminIds,
       googleMap: formData.googleMap,
-      bkashNumber: formData.bkashNumber, // Add bkashNumber to payload
+        bkashNumber: formData.bkashNumber,
       isActive: formData.isActive,
       slug: formData.slug || formData.name.toLowerCase().replace(/\s+/g, "-"),
+        facilities: validFacilities, // Include facilities in payload with pricing rules
     };
 
     console.log('📦 Final update payload:', payload);
     mutation.mutate(payload);
+    } catch (error: any) {
+      toast.error(error.message || "Please ensure all facilities have valid pricing rules");
+    }
   };
 
   if (isFetchingTurf) {
@@ -309,13 +417,13 @@ const UpdateTurf: React.FC = () => {
               required 
             />
             <input 
-              name="defaultPricePerSlot" 
-              value={formData.defaultPricePerSlot} 
+              name="capacity" 
+              value={formData.capacity} 
               onChange={handleChange} 
               type="number" 
-              placeholder="Default Price Per Hour" 
+              min="1"
+              placeholder="Capacity (e.g., 22)" 
               className="p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-emerald-200" 
-              required 
             />
             <input 
               name="googleMap" 
@@ -468,15 +576,75 @@ const UpdateTurf: React.FC = () => {
             </button>
           </div>
 
-          {/* Pricing Rules */}
+          {/* Facilities */}
           <div>
-            <h3 className="font-semibold mb-2">Pricing Rules</h3>
-            {formData.pricingRules.map((rule, idx) => (
-              <div key={idx} className="grid grid-cols-1 md:grid-cols-6 gap-2 items-center mb-2 p-3 bg-gray-50 rounded-lg">
+            <h3 className="font-semibold mb-2">Facilities</h3>
+            <p className="text-sm text-gray-600 mb-3">
+              Manage facilities for this turf (e.g., Turf 1, Turf 2, Badminton 1, Table Tennis 1)
+            </p>
+            {facilities.length === 0 ? (
+              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg mb-4">
+                <p className="text-sm text-yellow-800">
+                  No facilities found. Add at least one facility below.
+                </p>
+              </div>
+            ) : null}
+            {facilities.map((facility, idx) => (
+              <div key={facility._id || idx} className="p-4 bg-gray-50 rounded-lg mb-4 space-y-4 border border-gray-200">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    {facility._id ? (
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded">
+                        Existing Facility
+                      </span>
+                    ) : (
+                      <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded">
+                        New Facility
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-center">
+                  <input
+                    type="text"
+                    value={facility.name}
+                    onChange={(e) => updateFacility(idx, "name", e.target.value)}
+                    placeholder="Facility name (e.g., Turf 1)"
+                    className="col-span-2 p-2 border rounded-lg"
+                  />
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={facility.isActive}
+                        onChange={(e) => updateFacility(idx, "isActive", e.target.checked)}
+                        className="w-4 h-4"
+                      />
+                      <span>Active</span>
+                    </label>
+                    {facilities.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeFacility(idx)}
+                        className="px-3 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition text-sm"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Facility Pricing Rules */}
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-700">
+                    Pricing Rules <span className="text-red-500">*</span>
+                  </label>
+                  {facility.pricingRules.map((rule, ruleIdx) => (
+                    <div key={ruleIdx} className="grid grid-cols-1 md:grid-cols-6 gap-2 items-center mb-2 p-3 bg-white rounded-lg border border-gray-200">
                 <select 
                   value={rule.dayType} 
-                  onChange={(e) => handleRuleChange(idx, "dayType", e.target.value)} 
-                  className="col-span-2 p-2 border rounded-lg"
+                        onChange={(e) => handleFacilityRuleChange(idx, ruleIdx, "dayType", e.target.value)} 
+                        className="col-span-2 p-2 border rounded-lg text-sm"
                   required
                 >
                   <option value="">Select Day Type</option>
@@ -487,30 +655,38 @@ const UpdateTurf: React.FC = () => {
                 <input 
                   type="time" 
                   value={rule.startTime} 
-                  onChange={(e) => handleRuleChange(idx, "startTime", e.target.value)} 
-                  className="p-2 border rounded-lg" 
+                        onChange={(e) => handleFacilityRuleChange(idx, ruleIdx, "startTime", e.target.value)} 
+                        className="p-2 border rounded-lg text-sm" 
                   required
                 />
+                      <div className="relative">
                 <input 
                   type="time" 
                   value={rule.endTime} 
-                  onChange={(e) => handleRuleChange(idx, "endTime", e.target.value)} 
-                  className="p-2 border rounded-lg" 
+                          onChange={(e) => handleFacilityRuleChange(idx, ruleIdx, "endTime", e.target.value)} 
+                          className="p-2 border rounded-lg text-sm" 
                   required
                 />
+                        {rule.startTime && rule.endTime && rule.endTime < rule.startTime && (
+                          <span className="absolute -top-6 left-0 text-xs text-blue-600 font-medium whitespace-nowrap">
+                            Spans midnight (next day)
+                          </span>
+                        )}
+                      </div>
                 <input 
                   type="number" 
                   value={rule.pricePerSlot as any} 
-                  onChange={(e) => handleRuleChange(idx, "pricePerSlot", e.target.value)} 
+                        onChange={(e) => handleFacilityRuleChange(idx, ruleIdx, "pricePerSlot", e.target.value)} 
                   placeholder="Price" 
-                  className="p-2 border rounded-lg" 
+                        className="p-2 border rounded-lg text-sm" 
                   required
+                        min="0"
                 />
                 <button 
                   type="button" 
-                  onClick={() => removeRule(idx)} 
-                  className="px-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
-                  disabled={formData.pricingRules.length === 1}
+                        onClick={() => removeFacilityRule(idx, ruleIdx)} 
+                        className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition text-sm"
+                        disabled={facility.pricingRules.length === 1}
                 >
                   Remove
                 </button>
@@ -518,12 +694,38 @@ const UpdateTurf: React.FC = () => {
             ))}
             <button 
               type="button" 
-              onClick={addRule} 
+                    onClick={() => addFacilityRule(idx)} 
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg mt-2 hover:bg-blue-700 transition text-sm"
+                  >
+                    + Add Pricing Rule
+                  </button>
+                </div>
+
+                {/* Default Price (Optional, Display Only) */}
+                <div>
+                  <label className="block text-xs font-medium mb-1 text-gray-700">
+                    Default Price Per Slot (Optional - Display Only Fallback)
+                  </label>
+                  <input
+                    type="number"
+                    value={facility.defaultPricePerSlot || ""}
+                    onChange={(e) => updateFacility(idx, "defaultPricePerSlot", e.target.value)}
+                    placeholder="e.g., 2000"
+                    min="0"
+                    className="w-full p-2 border rounded-lg"
+                  />
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addFacility}
               className="px-4 py-2 bg-green-600 text-white rounded-lg mt-2 hover:bg-green-700 transition"
             >
-              + Add Pricing Rule
+              + Add Facility
             </button>
           </div>
+
 
           <div className="flex justify-center gap-4">
             <button 

@@ -1,9 +1,10 @@
 import { Clock } from "lucide-react";
-import type { Turf } from "../../types/api.types";
+import type { Turf, Facility } from "../../types/api.types";
 import { formatTime } from "./helpers";
 
 interface PricingSectionProps {
   turf: Turf;
+  facility?: Facility | null;
 }
 
 const formatDayTypeLabel = (dayType: string) => {
@@ -13,19 +14,31 @@ const formatDayTypeLabel = (dayType: string) => {
   return dayType;
 };
 
-const PricingSection = ({ turf }: PricingSectionProps) => {
-  if (!turf.pricingRules?.length) return null;
+const PricingSection = ({ turf, facility }: PricingSectionProps) => {
+  // Pricing is now facility-specific only - facility is required
+  if (!facility) return null;
+
+  const pricingRules = facility.pricingRules || [];
+  const defaultPrice = facility.defaultPricePerSlot;
+
+  if (!pricingRules?.length && !defaultPrice) return null;
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-8">
-      <h3 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-3">
-        <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-          <span className="text-green-600">💰</span>
-        </div>
-        Pricing Structure
-      </h3>
-      <div className="space-y-6">
-        {turf.pricingRules.map((rule, idx) => (
+      <div className="mb-6">
+        <h3 className="text-2xl font-bold text-gray-800 mb-2 flex items-center gap-3">
+          <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+            <span className="text-green-600">💰</span>
+          </div>
+          Pricing Structure
+        </h3>
+        <p className="text-sm text-emerald-600 font-medium ml-11">
+          {facility.name} - Facility Pricing
+        </p>
+      </div>
+      {pricingRules && pricingRules.length > 0 && (
+        <div className="space-y-6">
+          {pricingRules.map((rule, idx) => (
           <div key={`${rule.dayType}-${idx}`} className="border border-gray-200 rounded-xl overflow-hidden">
             <div className="bg-gradient-to-r from-green-600 to-green-700 px-6 py-4">
               <h4 className="font-bold text-white capitalize sm:text-lg text-base">{formatDayTypeLabel(rule.dayType)}</h4>
@@ -41,6 +54,11 @@ const PricingSection = ({ turf }: PricingSectionProps) => {
                       <Clock className="w-5 h-5 text-gray-500" />
                       <span className="font-medium  text-gray-800">
                         {formatTime(slot.startTime)} - {formatTime(slot.endTime)}
+                        {slot.endTime < slot.startTime && (
+                          <span className="ml-2 text-xs text-blue-600 font-normal">
+                            (next day)
+                          </span>
+                        )}
                       </span>
                     </div>
                     <span className="md:text-2xl text-xs font-bold text-green-600">৳{slot.pricePerSlot} /hour</span>
@@ -49,8 +67,20 @@ const PricingSection = ({ turf }: PricingSectionProps) => {
               </div>
             </div>
           </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
+      {(!pricingRules || pricingRules.length === 0) && defaultPrice && (
+        <div className="p-6 bg-gray-50 rounded-xl">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Clock className="w-5 h-5 text-gray-500" />
+              <span className="font-medium text-gray-800">Default Rate</span>
+            </div>
+            <span className="text-2xl font-bold text-green-600">৳{defaultPrice} /hour</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

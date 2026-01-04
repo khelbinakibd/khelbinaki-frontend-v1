@@ -91,11 +91,11 @@ const router = createBrowserRouter([
         ),
       },
 
-      // ------- admin routes -------
+      // ------- admin routes (also accessible to turf admins) -------
       {
         path: "/dashboard/admin/statistic",
         element: (
-          <ProtectedRoute requiredRole="admin">
+          <ProtectedRoute requiredRole={["admin", "manager", "user"]}>
             <AdminStatistic />
           </ProtectedRoute>
         ),
@@ -103,7 +103,7 @@ const router = createBrowserRouter([
       {
         path: "/dashboard/admin/bookings",
         element: (
-          <ProtectedRoute requiredRole="admin">
+          <ProtectedRoute requiredRole={["admin", "manager", "user"]}>
             <AdminBookingManagement />
           </ProtectedRoute>
         ),
@@ -129,7 +129,7 @@ const router = createBrowserRouter([
       {
         path: "/dashboard/manager/turfs",
         element: (
-          <ProtectedRoute requiredRole="manager">
+          <ProtectedRoute requiredRole={["manager", "admin", "user"]}>
             <ManageTurfs />
           </ProtectedRoute>
         ),
@@ -137,7 +137,7 @@ const router = createBrowserRouter([
       {
         path: "/dashboard/manager/update-turf/:id",
         element: (
-          <ProtectedRoute requiredRole="manager">
+          <ProtectedRoute requiredRole={["manager", "admin", "user"]}>
             <UpdateTurf/>
           </ProtectedRoute>
         ),
