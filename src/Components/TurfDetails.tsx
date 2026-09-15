@@ -27,7 +27,7 @@ import LocationSection from "./TurfDetails/LocationSection";
 import BkashPaymentModal from "./TurfDetails/BkashPaymentModal";
 import FullscreenImageModal from "./TurfDetails/FullscreenImageModal";
 import type { LocalSlot } from "./TurfDetails/types";
-import { formatDateForApi } from "./TurfDetails/helpers";
+import { formatDateForApi, parseDateKeyForCalendar } from "./TurfDetails/helpers";
 
 const TurfDetails = () => {
   const { slug } = useParams();
@@ -44,42 +44,13 @@ const TurfDetails = () => {
 
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
     if (dateFromQuery) {
-      const parsed = new Date(dateFromQuery);
-      if (!isNaN(parsed.getTime())) {
-        // Return normalized date at noon to avoid timezone issues
-        return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 12, 0, 0, 0);
-      }
+      const parsed = parseDateKeyForCalendar(dateFromQuery);
+      if (parsed) return parsed;
     }
     // Default to today at noon
     const today = new Date();
     return new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0, 0, 0);
   });
-
-  const getCurrentDayType = (date: Date) => {
-    const day = new Date(date).getDay();
-    return day === 5 || day === 6 ? "friday-saturday" : "sunday-thursday";
-  };
-
-  const isTimeSlotPassed = (startTime: string, dateToCheck: Date) => {
-    const today = new Date();
-    const checkDateNormalized = new Date(dateToCheck.getFullYear(), dateToCheck.getMonth(), dateToCheck.getDate());
-    const todayNormalized = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-
-    // If it's not today, the slot hasn't passed
-    if (checkDateNormalized.getTime() !== todayNormalized.getTime()) {
-      return false;
-    }
-
-    // Compare times for today
-    const currentHour = today.getHours();
-    const currentMinutes = today.getMinutes();
-    const currentTotalMinutes = currentHour * 60 + currentMinutes;
-
-    const [slotHour, slotMinutes] = startTime.split(":").map(Number);
-    const slotTotalMinutes = slotHour * 60 + slotMinutes;
-
-    return slotTotalMinutes <= currentTotalMinutes;
-  };
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["turfDetails", slug],
@@ -137,7 +108,7 @@ const TurfDetails = () => {
     isLoading: isAvailabilityLoading,
     refetch: refetchAvailability,
   } = useQuery<TurfAvailability | null>({
-    queryKey: ["turf-availability", data?.data?._id, selectedFacility, selectedDate?.toDateString()],
+    queryKey: ["turf-availability", data?.data?._id, selectedFacility, formatDateForApi(selectedDate)],
     queryFn: async (): Promise<TurfAvailability | null> => {
       if (!selectedDate || !data?.data?._id || !selectedFacility) return null;
       const dateStr = formatDateForApi(selectedDate);
@@ -184,7 +155,7 @@ const TurfDetails = () => {
         queryKey: ["turfDetails", slug],
       });
       queryClient.invalidateQueries({
-        queryKey: ["turf-availability", data?.data?._id, selectedFacility, selectedDate?.toDateString()],
+        queryKey: ["turf-availability", data?.data?._id, selectedFacility, formatDateForApi(selectedDate)],
       });
       refetchAvailability();
     },
@@ -199,7 +170,7 @@ const TurfDetails = () => {
   // Frontend just displays what backend returns
 
   const generateTimeSlots = useCallback(
-    (dateForSlots: Date): LocalSlot[] => {
+    (): LocalSlot[] => {
       if (!data?.data) return [];
 
       const { start, end } = data.data.operatingHours;
@@ -212,14 +183,12 @@ const TurfDetails = () => {
         const startTime = `${String(hour).padStart(2, "0")}:00`;
         const endTime = `${String(hour + 1).padStart(2, "0")}:00`;
 
-        const hasPassedTime = isTimeSlotPassed(startTime, dateForSlots);
-
         slots.push({
           startTime,
           endTime,
           pricePerSlot: 0, // Will be overridden by backend pricing from availability API
-          isAvailable: !hasPassedTime,
-          isTimePassed: hasPassedTime,
+          isAvailable: true,
+          isTimePassed: false,
         });
       }
 
@@ -229,7 +198,7 @@ const TurfDetails = () => {
   );
 
   const getAvailableTimeSlots = useCallback((): LocalSlot[] => {
-    const allSlots: LocalSlot[] = generateTimeSlots(selectedDate);
+    const allSlots: LocalSlot[] = generateTimeSlots();
 
     if (!availability?.slots) {
       return allSlots;
@@ -240,22 +209,28 @@ const TurfDetails = () => {
         (availSlot: AvailabilitySlot) => availSlot.startTime === slot.startTime
       );
 
+      const isTimePassed = backendSlot?.isTimePassed ?? false;
       const isBackendAvailable = backendSlot?.isAvailable ?? true;
-      const finalAvailability = !slot.isTimePassed && isBackendAvailable;
+      const finalAvailability = !isTimePassed && isBackendAvailable;
 
       return {
         ...slot,
         isAvailable: finalAvailability,
+        isTimePassed,
         pricePerSlot: backendSlot?.pricePerSlot ?? slot.pricePerSlot,
         isBooked: backendSlot ? !backendSlot.isAvailable : false,
       };
     });
-  }, [generateTimeSlots, selectedDate, availability?.slots]);
+  }, [generateTimeSlots, availability?.slots]);
 
   const handleBookingInitiate = () => {
     if (!selectedTimeSlot || !data?.data) return;
 
-    if (isTimeSlotPassed(selectedTimeSlot.startTime, selectedDate)) {
+    const backendSlot = availability?.slots.find(
+      (slot) => slot.startTime === selectedTimeSlot.startTime
+    );
+
+    if (backendSlot?.isTimePassed ?? selectedTimeSlot.isTimePassed) {
       toast.error("This time slot has already passed. Please select a future time.");
       setSelectedTimeSlot(null);
       return;
@@ -273,21 +248,10 @@ const TurfDetails = () => {
     if (!selectedTimeSlot || !data?.data) return;
 
     try {
-      // Normalize the date to avoid timezone issues
-      const normalizedDate = new Date(
-        selectedDate.getFullYear(),
-        selectedDate.getMonth(),
-        selectedDate.getDate(),
-        12,
-        0,
-        0,
-        0
-      );
-
       const bookingData: any = {
         turf: data.data._id,
         facility: selectedFacility,
-        date: normalizedDate,
+        date: formatDateForApi(selectedDate),
         startTime: selectedTimeSlot.startTime,
         endTime: selectedTimeSlot.endTime,
         transactionId: paymentData.transactionId,
