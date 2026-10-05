@@ -114,6 +114,7 @@ export interface AvailabilitySlot {
 	startTime: string;
 	endTime: string;
 	isAvailable: boolean;
+	isTimePassed: boolean;
 	pricePerSlot: number;
 	dayTypeLabel: "FRI-SAT" | "SUN-THU";
 }
