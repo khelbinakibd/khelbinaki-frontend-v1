@@ -23,6 +23,7 @@ const Navbar = () => {
   const navLinks = [
     { to: "/", label: "Home" },
     { to: "/turfs", label: "Turfs" },
+    { to: "/my-bookings", label: "My Bookings" },
     { to: "/gallery", label: "Gallery" },
     { to: "/contact", label: "Contact" },
   ];

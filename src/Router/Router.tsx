@@ -1,6 +1,7 @@
 import { createBrowserRouter } from "react-router";
 import MainLayout from "../Layouts/MainLayout";
 import Home from "../Pages/Home";
+import MyBookingsLookup from "../Pages/MyBookingsLookup";
 import TurfDetails from "../Components/TurfDetails";
 import Register from "../AuthPage/Register";
 import Login from "../AuthPage/Login";
@@ -37,6 +38,7 @@ const router = createBrowserRouter([
     path: "/",
     element: <MainLayout />,
     children: [
+      { path: "/my-bookings", element: <MyBookingsLookup /> },
       {
         path: "/",
         element: <Home />,
