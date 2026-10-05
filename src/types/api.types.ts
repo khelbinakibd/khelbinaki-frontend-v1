@@ -135,3 +135,26 @@ export type CreateTurfData = z.infer<typeof createTurfSchema>;
 export type UpdateProfileData = z.infer<typeof updateProfileSchema>;
 export type CreateBookingData = z.infer<typeof createBookingSchema>;
 export type UpdateBookingStatusData = z.infer<typeof updateBookingStatusSchema>;
+
+// Public phone lookup response; separate from authenticated booking documents.
+export interface PublicBooking {
+  bookingId: string;
+  turfName: string | null;
+  facilityName: string | null;
+  venueLocation: { address?: string; city?: string } | null;
+  date: string;
+  startTime: string;
+  endTime: string;
+  status: "pending" | "confirmed" | "cancelled";
+  paymentStatus: "unpaid" | "pending" | "paid" | "refunded";
+}
+
+export interface BookingLookupResponse {
+  bookings: PublicBooking[];
+  meta: {
+    totalItems: number;
+    totalPage: number;
+    currentPage: number;
+    itemsPerPage: number;
+  };
+}
