@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "react-router";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import type { AxiosError } from "axios";
 import type {
@@ -10,8 +10,6 @@ import type {
   ApiError,
   CreateBookingData,
   Booking,
-  TurfAvailability,
-  AvailabilitySlot,
   Facility,
 } from "../types/api.types";
 import api from "../lib/api";
@@ -29,10 +27,15 @@ import FullscreenImageModal from "./TurfDetails/FullscreenImageModal";
 import type { LocalSlot } from "./TurfDetails/types";
 import { formatDateForApi, parseDateKeyForCalendar } from "./TurfDetails/helpers";
 
+import { useFacilityAvailability } from "../Hooks/api/useFacilityAvailability";
+import { customerBookingMutationOptions } from "../lib/customerBookingMutation";
+import { availableSelection } from "../lib/availability";
+import { getDhakaDateKey } from "../utils/businessTime";
+
 const TurfDetails = () => {
+  const selectionVersion = useRef(0);
   const { slug } = useParams();
   const [selectedFacility, setSelectedFacility] = useState<string>("");
-  const [selectedFacilityData, setSelectedFacilityData] = useState<Facility | null>(null);
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<null | LocalSlot>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
@@ -47,9 +50,7 @@ const TurfDetails = () => {
       const parsed = parseDateKeyForCalendar(dateFromQuery);
       if (parsed) return parsed;
     }
-    // Default to today at noon
-    const today = new Date();
-    return new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0, 0, 0);
+    return parseDateKeyForCalendar(getDhakaDateKey())!;
   });
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -63,7 +64,7 @@ const TurfDetails = () => {
 
   // Fetch facilities for the turf
   const { data: facilitiesData } = useQuery<ApiResponse<Facility[]>>({
-    queryKey: ["facilities", data?.data?._id],
+    queryKey: ["public-facilities", data?.data?._id],
     queryFn: async () => {
       if (!data?.data?._id) throw new Error("Turf ID not available");
       const response = await api.get<ApiResponse<Facility[]>>(`/turfs/${data.data._id}/facilities`);
@@ -85,51 +86,23 @@ const TurfDetails = () => {
     enabled: !!selectedFacility,
   });
 
+  const selectedFacilityData = facilityDetailsData?.data ?? null;
+  const availabilityQuery = useFacilityAvailability(data?.data?._id ?? "", selectedFacility, formatDateForApi(selectedDate));
+  const availability = availabilityQuery.isError ? undefined : availabilityQuery.data;
+  const isAvailabilityLoading = availabilityQuery.isFetching;
+  const refetchAvailability = availabilityQuery.refetch;
+
   useEffect(() => {
-    if (facilityDetailsData?.data) {
-      setSelectedFacilityData(facilityDetailsData.data);
-    } else {
-      setSelectedFacilityData(null);
+    if (!selectedTimeSlot || availabilityQuery.isFetching) return;
+    const fresh = availableSelection(availability, selectedTimeSlot);
+    if (!fresh || fresh.pricePerSlot !== selectedTimeSlot.pricePerSlot) {
+      setSelectedTimeSlot(null);
+      setShowPaymentModal(false);
     }
-  }, [facilityDetailsData]);
-
-  // Reset date and time slot when facility changes
-  useEffect(() => {
-    setSelectedDate(() => {
-      const today = new Date();
-      return new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0, 0, 0);
-    });
-    setSelectedTimeSlot(null);
-    setSelectedFacilityData(null);
-  }, [selectedFacility]);
-
-  const {
-    data: availability,
-    isLoading: isAvailabilityLoading,
-    refetch: refetchAvailability,
-  } = useQuery<TurfAvailability | null>({
-    queryKey: ["turf-availability", data?.data?._id, selectedFacility, formatDateForApi(selectedDate)],
-    queryFn: async (): Promise<TurfAvailability | null> => {
-      if (!selectedDate || !data?.data?._id || !selectedFacility) return null;
-      const dateStr = formatDateForApi(selectedDate);
-      const response = await api.get<ApiResponse<TurfAvailability>>(`/turfs/${data.data._id}/availability`, {
-        params: { date: dateStr, facility: selectedFacility },
-      });
-      return response.data.data ?? null;
-    },
-    enabled: !!selectedDate && !!data?.data?._id && !!selectedFacility,
-    refetchOnWindowFocus: true,
-    staleTime: 0,
-    gcTime: 0,
-  });
-
-  useEffect(() => {
-    if (selectedDate && data?.data?._id) {
-      refetchAvailability();
-    }
-  }, [selectedDate, data?.data?._id, refetchAvailability]);
+  }, [availability, availabilityQuery.isFetching, selectedTimeSlot]);
 
   const bookingMutation = useMutation({
+    ...customerBookingMutationOptions,
     mutationFn: async (
       bookingData: CreateBookingData & {
         paymentDetails: {
@@ -161,82 +134,39 @@ const TurfDetails = () => {
     },
     onError: (error: AxiosError<ApiError>) => {
       console.error("Booking mutation error:", error);
+      if (error.response?.status === 409) {
+        selectionVersion.current++;
+        setSelectedTimeSlot(null);
+        setShowPaymentModal(false);
+        void queryClient.invalidateQueries({ queryKey: ["turf-availability", data?.data?._id, selectedFacility] });
+      }
       const errorMessage = error.response?.data?.message || "Failed to create booking.";
       toast.error(errorMessage);
     },
   });
 
-  // Pricing is now handled entirely by backend via availability API
-  // Frontend just displays what backend returns
+  // Display only authoritative backend slots; never fabricate selectable slots.
+  const availableSlots: LocalSlot[] = (availability?.slots ?? []).map(slot => ({
+    ...slot, isAvailable: !isAvailabilityLoading && slot.isAvailable && !slot.isTimePassed,
+  }));
 
-  const generateTimeSlots = useCallback(
-    (): LocalSlot[] => {
-      if (!data?.data) return [];
-
-      const { start, end } = data.data.operatingHours;
-      const slots: LocalSlot[] = [];
-
-      const startHour = parseInt(start.split(":")[0], 10);
-      const endHour = parseInt(end.split(":")[0], 10);
-
-      for (let hour = startHour; hour < endHour; hour++) {
-        const startTime = `${String(hour).padStart(2, "0")}:00`;
-        const endTime = `${String(hour + 1).padStart(2, "0")}:00`;
-
-        slots.push({
-          startTime,
-          endTime,
-          pricePerSlot: 0, // Will be overridden by backend pricing from availability API
-          isAvailable: true,
-          isTimePassed: false,
-        });
-      }
-
-      return slots;
-    },
-    [data?.data]
-  );
-
-  const getAvailableTimeSlots = useCallback((): LocalSlot[] => {
-    const allSlots: LocalSlot[] = generateTimeSlots();
-
-    if (!availability?.slots) {
-      return allSlots;
-    }
-
-    return allSlots.map((slot) => {
-      const backendSlot = availability.slots.find(
-        (availSlot: AvailabilitySlot) => availSlot.startTime === slot.startTime
-      );
-
-      const isTimePassed = backendSlot?.isTimePassed ?? false;
-      const isBackendAvailable = backendSlot?.isAvailable ?? true;
-      const finalAvailability = !isTimePassed && isBackendAvailable;
-
-      return {
-        ...slot,
-        isAvailable: finalAvailability,
-        isTimePassed,
-        pricePerSlot: backendSlot?.pricePerSlot ?? slot.pricePerSlot,
-        isBooked: backendSlot ? !backendSlot.isAvailable : false,
-      };
-    });
-  }, [generateTimeSlots, availability?.slots]);
-
-  const handleBookingInitiate = () => {
-    if (!selectedTimeSlot || !data?.data) return;
-
-    const backendSlot = availability?.slots.find(
-      (slot) => slot.startTime === selectedTimeSlot.startTime
-    );
-
-    if (backendSlot?.isTimePassed ?? selectedTimeSlot.isTimePassed) {
-      toast.error("This time slot has already passed. Please select a future time.");
+  async function validateCurrentSelection() {
+    if (!selectedTimeSlot || !selectedFacility || !data?.data) return null;
+    const version = selectionVersion.current;
+    const result = await refetchAvailability();
+    if (version !== selectionVersion.current) return null;
+    const fresh = result.isError ? undefined : availableSelection(result.data, selectedTimeSlot);
+    if (!fresh || fresh.pricePerSlot !== selectedTimeSlot.pricePerSlot) {
       setSelectedTimeSlot(null);
-      return;
+      setShowPaymentModal(false);
+      toast.error(result.isError ? "Unable to verify availability. Please retry." : "Availability or price has changed. Please select a slot again.");
+      return null;
     }
+    return fresh;
+  }
 
-    setShowPaymentModal(true);
+  const handleBookingInitiate = async () => {
+    if (await validateCurrentSelection()) setShowPaymentModal(true);
   };
 
   const handlePaymentSubmit = async (paymentData: {
@@ -246,14 +176,16 @@ const TurfDetails = () => {
     lastFourDigits: string;
   }) => {
     if (!selectedTimeSlot || !data?.data) return;
+    const fresh = await validateCurrentSelection();
+    if (!fresh) return;
 
     try {
       const bookingData: any = {
         turf: data.data._id,
         facility: selectedFacility,
         date: formatDateForApi(selectedDate),
-        startTime: selectedTimeSlot.startTime,
-        endTime: selectedTimeSlot.endTime,
+        startTime: fresh.startTime,
+        endTime: fresh.endTime,
         transactionId: paymentData.transactionId,
         paidAmount: paymentData.amount,
         lastDigit: paymentData.lastFourDigits,
@@ -268,11 +200,13 @@ const TurfDetails = () => {
   const handleDateChange = (date: Date) => {
     // Normalize to noon to avoid timezone shifts
     const normalized = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0);
+    selectionVersion.current++;
     setSelectedDate(normalized);
+    setSelectedTimeSlot(null);
+    setShowPaymentModal(false);
   };
 
   const isFormLoading = bookingMutation.isPending || isAvailabilityLoading;
-  const availableSlots: LocalSlot[] = getAvailableTimeSlots();
 
   if (isLoading) return <Loader/>;
 
@@ -317,7 +251,13 @@ const TurfDetails = () => {
                       .map((facility) => (
                         <button
                           key={facility._id}
-                          onClick={() => setSelectedFacility(facility._id)}
+                          onClick={() => {
+                            selectionVersion.current++;
+                            setSelectedFacility(facility._id);
+                            setSelectedTimeSlot(null);
+                            setShowPaymentModal(false);
+                            setSelectedDate(parseDateKeyForCalendar(getDhakaDateKey())!);
+                          }}
                           className={`px-4 py-3 rounded-xl border-2 text-left transition-all ${
                             selectedFacility === facility._id
                               ? "border-emerald-500 bg-emerald-50 text-emerald-700 font-semibold"
@@ -341,7 +281,9 @@ const TurfDetails = () => {
                   isAvailabilityLoading={isAvailabilityLoading}
                   isFormLoading={isFormLoading}
                   onDateChange={handleDateChange}
-                  onTimeSlotSelect={setSelectedTimeSlot}
+                  onTimeSlotSelect={slot => { selectionVersion.current++; setSelectedTimeSlot(slot); }}
+                  availabilityError={availabilityQuery.isError}
+                  onAvailabilityRetry={() => { void refetchAvailability(); }}
                   onBookingInitiate={handleBookingInitiate}
                 />
               )}
@@ -366,7 +308,7 @@ const TurfDetails = () => {
         onClose={() => setShowPaymentModal(false)}
         totalAmount={selectedTimeSlot?.pricePerSlot || 0}
         onSubmit={handlePaymentSubmit}
-        isLoading={bookingMutation.isPending}
+        isLoading={bookingMutation.isPending || isAvailabilityLoading}
       />
 
       {/* Fullscreen Image Modal */}

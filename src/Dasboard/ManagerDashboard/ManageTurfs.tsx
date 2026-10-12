@@ -1,11 +1,26 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { toast } from "sonner";
 import api from "../../lib/api";
 import { Link } from "react-router";
+import { useMaintenanceTurfs } from "../../Hooks/api/useMaintenanceBlocks";
+import MaintenanceBlocksPanel from "../AdminDashboard/MaintenanceBlocksPanel";
+import { authenticatedUserId, authStore } from "../../Store/auth";
 
-const ManageTurfs = () => {
+const TurfManagementList = () => {
+  const userId = authStore(authenticatedUserId);
+  const [maintenanceSelection, setMaintenanceSelection] = useState({ userId: "", turfId: "" });
+  const manageable = useMaintenanceTurfs();
+  const { hasNextPage, isFetching, isError: permissionsError, fetchNextPage } = manageable;
+  // Load all permission pages, including turfs beyond the first 50 results.
+  useEffect(() => {
+    if (hasNextPage && !isFetching && !permissionsError) void fetchNextPage();
+  }, [hasNextPage, isFetching, permissionsError, fetchNextPage]);
+  const manageableIds = new Set(userId && manageable.isSuccess
+    ? manageable.data.pages.flatMap(page => page.data.map(turf => turf._id)) : []);
+  const maintenanceTurfId = maintenanceSelection.userId === userId && manageableIds.has(maintenanceSelection.turfId)
+    ? maintenanceSelection.turfId : "";
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -14,7 +29,7 @@ const ManageTurfs = () => {
 
   // Fetch turfs
   const { data: turfsResponse, isError, isLoading } = useQuery({
-    queryKey: ["admin-turfs"],
+    queryKey: ["turfs-management"],
     queryFn: async () => {
       const res = await api.get("/turfs");
       return res.data;
@@ -53,7 +68,7 @@ const ManageTurfs = () => {
       return res.data;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["turfs"] });
+      queryClient.invalidateQueries({ queryKey: ["turfs-management"] });
       toast.success(data?.message || "Turf deleted successfully");
     },
     onError: (error: any) => {
@@ -160,7 +175,7 @@ const ManageTurfs = () => {
         {/* Header */}
         <div className="my-10">
           <h1 className="text-3xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent mb-2">
-            Manage Turfs
+            Turf Details
           </h1>
           <p className="text-gray-600 text-sm">
             Manage turf details, availability, and status
@@ -214,7 +229,7 @@ const ManageTurfs = () => {
               </p>
             </div>
           ) : (
-            <table className="w-full">
+            <div className="overflow-x-auto"><table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase">
@@ -233,7 +248,8 @@ const ManageTurfs = () => {
               </thead>
               <tbody className="bg-white divide-y divide-gray-100">
                 {paginatedTurfs?.map((turf: any) => (
-                  <tr key={turf?._id} className="hover:bg-gray-50">
+                  <Fragment key={turf?._id}>
+                  <tr className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <p className="font-medium text-gray-900">
                         {turf?.name || "Unnamed Turf"}
@@ -255,7 +271,8 @@ const ManageTurfs = () => {
                         {turf?.isActive ? "Active" : "Inactive"}
                       </span>
                     </td>
-                    <td className="px-6 py-4 flex items-center gap-2">
+                    <td className="px-6 py-4">
+                      <div className="flex flex-wrap items-center gap-2">
                       {/* {turf?.isActive ? (
                         <button
                           onClick={() =>
@@ -288,11 +305,31 @@ const ManageTurfs = () => {
                       >
                         Edit
                       </Link>
+                      {manageableIds.has(turf._id) && <button type="button" id={`maintenance-toggle-${turf._id}`}
+                        aria-expanded={maintenanceTurfId === turf._id}
+                        aria-controls={maintenanceTurfId === turf._id ? `maintenance-panel-${turf._id}` : undefined}
+                        onClick={() => setMaintenanceSelection({ userId, turfId: maintenanceTurfId === turf._id ? "" : turf._id })}
+                        className="px-3 py-1.5 bg-emerald-50 text-emerald-700 text-sm font-medium rounded-lg hover:bg-emerald-100 transition-colors focus-visible:outline-2 focus-visible:outline-emerald-500">
+                        Maintenance
+                      </button>}
+                      </div>
                     </td>
                   </tr>
+                  {maintenanceTurfId === turf._id && <tr>
+                    <td colSpan={4} className="p-3 sm:p-5 bg-emerald-50/40">
+                      <div id={`maintenance-panel-${turf._id}`}>
+                        <MaintenanceBlocksPanel key={`${userId}:${turf._id}`} selectedTurfId={turf._id}
+                          onClose={() => {
+                            setMaintenanceSelection({ userId, turfId: "" });
+                            document.getElementById(`maintenance-toggle-${turf._id}`)?.focus();
+                          }} />
+                      </div>
+                    </td>
+                  </tr>}
+                  </Fragment>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           )}
 
           {/* Pagination Controls */}
@@ -328,4 +365,4 @@ const ManageTurfs = () => {
   );
 };
 
-export default ManageTurfs;
+export default TurfManagementList;
