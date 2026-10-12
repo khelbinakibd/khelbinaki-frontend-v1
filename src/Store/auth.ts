@@ -10,6 +10,11 @@ interface AuthState {
 	isLoading: boolean;
 }
 
+// Login/OTP responses use id; profile responses and older state use _id.
+export function authenticatedUserId(state: { isAuthenticated: boolean; user: { _id?: string; id?: string } | null }): string {
+	return state.isAuthenticated ? state.user?._id || state.user?.id || "" : "";
+}
+
 interface AuthAction {
 	setUser: (user: User) => void;
 	setTokens: (accessToken: string, refreshToken?: string) => void;

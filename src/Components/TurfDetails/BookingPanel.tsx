@@ -1,9 +1,12 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Calendar as CalendarIcon, ChevronDown, Clock } from "lucide-react";
 import { Link } from "react-router";
 import Calendar from "./Calendar";
 import type { LocalSlot } from "./types";
-import { formatTime } from "./helpers";
+import { formatDateForApi, formatTime } from "./helpers";
+
+import { getDhakaDateKey } from "../../utils/businessTime";
+import { availabilityStatusLabel } from "../../lib/availability";
 
 interface BookingPanelProps {
   isAuthenticated: boolean;
@@ -11,6 +14,8 @@ interface BookingPanelProps {
   selectedTimeSlot: LocalSlot | null;
   availableSlots: LocalSlot[];
   isAvailabilityLoading: boolean;
+  availabilityError?: boolean;
+  onAvailabilityRetry?: () => void;
   isFormLoading: boolean;
   onDateChange: (date: Date) => void;
   onTimeSlotSelect: (slot: LocalSlot | null) => void;
@@ -23,6 +28,8 @@ const BookingPanel = ({
   selectedTimeSlot,
   availableSlots,
   isAvailabilityLoading,
+  availabilityError,
+  onAvailabilityRetry,
   isFormLoading,
   onDateChange,
   onTimeSlotSelect,
@@ -30,7 +37,6 @@ const BookingPanel = ({
 }: BookingPanelProps) => {
   const [showTimeSlots, setShowTimeSlots] = useState(false);
 
-  const today = useMemo(() => new Date(new Date().setHours(0, 0, 0, 0)), []);
 
   const handleDateSelect = (date: Date) => {
     onDateChange(date);
@@ -74,10 +80,14 @@ const BookingPanel = ({
           selected={selectedDate}
           onSelect={handleDateSelect}
           className="w-full"
-          disabled={(date) => date < today}
+          disabled={(date) => isFormLoading || formatDateForApi(date) < getDhakaDateKey()}
         />
       </div>
 
+      {availabilityError && <div role="alert" className="mb-4 text-sm text-red-700 bg-red-50 p-3 rounded-xl">
+        Unable to load availability.
+        <button type="button" className="ml-2 underline" onClick={onAvailabilityRetry}>Retry</button>
+      </div>}
       <div className="mb-6">
         <label className="block text-sm font-semibold text-gray-700 mb-3">
           Select Time Slot
@@ -114,19 +124,8 @@ const BookingPanel = ({
                 </div>
               ) : availableSlots.length > 0 ? (
                 availableSlots.map((slot) => {
-                  let statusText = "";
-                  let statusClass = "";
-
-                  if (slot.isTimePassed) {
-                    statusText = "(Time Passed)";
-                    statusClass = "text-red-500";
-                  } else if (slot.isBooked) {
-                    statusText = "(Booked)";
-                    statusClass = "text-orange-500";
-                  } else if (!slot.isAvailable) {
-                    statusText = "(Unavailable)";
-                    statusClass = "text-gray-500";
-                  }
+                  const statusText = availabilityStatusLabel(slot);
+                  const statusClass = slot.isTimePassed ? "text-red-500" : "text-gray-500";
 
                   return (
                     <button

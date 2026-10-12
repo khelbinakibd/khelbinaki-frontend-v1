@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { getDhakaDateKey } from "../../utils/businessTime";
+import { formatDateForApi, parseDateKeyForCalendar } from "./helpers";
+
 export interface CalendarProps {
   selected: Date;
   onSelect: (date: Date) => void;
@@ -11,7 +14,7 @@ const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(),
 
 const Calendar = ({ selected, onSelect, className = "", disabled }: CalendarProps) => {
   const [currentDate, setCurrentDate] = useState(() => startOfDay(selected));
-  const today = useMemo(() => startOfDay(new Date()), []);
+  const today = parseDateKeyForCalendar(getDhakaDateKey())!;
 
   useEffect(() => {
     setCurrentDate(startOfDay(selected));
@@ -56,7 +59,7 @@ const Calendar = ({ selected, onSelect, className = "", disabled }: CalendarProp
 
   const isSameDay = (date1: Date, date2: Date) => date1.toDateString() === date2.toDateString();
 
-  const isPast = (date: Date) => startOfDay(date) < today;
+  const isPast = (date: Date) => formatDateForApi(date) < getDhakaDateKey();
 
   const days = useMemo(() => getDaysInMonth(currentDate), [currentDate]);
   const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

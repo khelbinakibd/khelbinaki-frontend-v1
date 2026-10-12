@@ -1,19 +1,34 @@
-import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import api from "../../lib/api";
 import Loader from "../../Components/Loader";
-import type { AvailabilitySlot, User, Facility } from "../../types/api.types";
+import type { DataResponse, User, Facility } from "../../types/api.types";
 
-const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
+import { useMaintenanceFacilities, useMaintenanceTurfs } from "../../Hooks/api/useMaintenanceBlocks";
+import { useFacilityAvailability } from "../../Hooks/api/useFacilityAvailability";
+import { availableInterval } from "../../lib/availability";
+import { authenticatedUserId, authStore } from "../../Store/auth";
+import { createCustomerSearchGuard } from "../../lib/customerSearchGuard";
+import { maintenanceError } from "../../lib/maintenanceErrors";
+
+interface ManualBookingPayload {
+  turf: string; facility: string; date: string; startTime: string; endTime: string;
+  userPhone: string; totalPayment: number | null; paidAmount: number;
+  firstName?: string; lastName?: string; email?: string;
+}
+
+const ManualBookingFields = ({ onSuccess }: { onSuccess?: () => void }) => {
   const [selectedTurf, setSelectedTurf] = useState("");
   const [selectedFacility, setSelectedFacility] = useState("");
   const [date, setDate] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
-  const [availableSlots, setAvailableSlots] = useState<AvailabilitySlot[]>([]);
-  const [loadingSlots, setLoadingSlots] = useState(false);
-  const [phone, setPhone] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const selectionVersion = useRef(0);
+  const customerGuard = useRef(createCustomerSearchGuard()).current;
+  useEffect(() => () => { selectionVersion.current++; customerGuard.invalidate(); }, [customerGuard]);
+  const queryClient = useQueryClient();
   const [totalPayment, setTotalPayment] = useState<string>("");
   const [advancePayment, setAdvancePayment] = useState<number>(0);
   
@@ -27,51 +42,44 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
 
-  // Fetch turfs for admin
-  const { data: turfs, isLoading: turfsLoading } = useQuery({
-    queryKey: ["admin-turfs"],
-    queryFn: async () => {
-      const res = await api.get("/admin/turfs");
-      const data = res.data.data;
-      // Ensure we always return an array
-      return Array.isArray(data) ? data : [];
-    },
-  });
-
-  // Fetch facilities for selected turf
-  const { data: facilities, isLoading: facilitiesLoading } = useQuery({
-    queryKey: ["facilities", selectedTurf],
-    queryFn: async () => {
-      if (!selectedTurf) return [];
-      const res = await api.get(`/turfs/${selectedTurf}/facilities`);
-      return res.data.data || [];
-    },
-    enabled: !!selectedTurf,
-  });
-
-  // Reset facility when turf changes
+  const turfsQuery = useMaintenanceTurfs();
+  const turfs = turfsQuery.isError ? [] : turfsQuery.data?.pages.flatMap(page => page.data) ?? [];
+  const turfsLoading = turfsQuery.isPending;
+  const eligibleTurf = turfs.some(turf => turf._id === selectedTurf) ? selectedTurf : "";
+  const { hasNextPage, isFetching, isError: turfError, fetchNextPage } = turfsQuery;
   useEffect(() => {
-    setSelectedFacility("");
-    setDate("");
-    setStartTime("");
-    setEndTime("");
-    setAvailableSlots([]);
+    if (hasNextPage && !isFetching && !turfError) void fetchNextPage();
+  }, [hasNextPage, isFetching, turfError, fetchNextPage]);
+  useEffect(() => {
+    if (!selectedTurf || eligibleTurf || !turfsQuery.isSuccess || hasNextPage) return;
+    selectionVersion.current++;
+    customerGuard.invalidate();
+    setIsSearchingUser(false);
+    setSelectedTurf(""); setSelectedFacility(""); setDate(""); setStartTime(""); setEndTime("");
+    setSearchPhone(""); setFoundUser(null); setHasSearched(false); setFirstName(""); setLastName(""); setEmail("");
+    setTotalPayment(""); setAdvancePayment(0); setUserSearchError(null);
+  }, [selectedTurf, eligibleTurf, turfsQuery.isSuccess, hasNextPage, customerGuard]);
+  const facilitiesQuery = useMaintenanceFacilities(eligibleTurf);
+  const facilities = facilitiesQuery.isError ? [] : facilitiesQuery.data ?? [];
+  const facilitiesLoading = facilitiesQuery.isPending;
+  const eligibleFacility = facilities.some(facility => facility._id === selectedFacility && facility.isActive) ? selectedFacility : "";
+  const availabilityQuery = useFacilityAvailability(eligibleTurf, eligibleFacility, date);
+  const permissionReady = !!eligibleTurf && !!eligibleFacility && !turfsQuery.isFetching && !turfsQuery.isError && !facilitiesQuery.isFetching && !facilitiesQuery.isError;
+  const loadingSlots = availabilityQuery.isFetching;
+  const availableSlots = useMemo(() => availabilityQuery.isError || availabilityQuery.isFetching ? [] : availabilityQuery.data?.slots ?? [],
+    [availabilityQuery.data, availabilityQuery.isError, availabilityQuery.isFetching]);
+
+  useEffect(() => {
+    setSelectedFacility(""); setDate(""); setStartTime(""); setEndTime("");
   }, [selectedTurf]);
 
-  // Fetch available slots when turf, facility, or date changes
   useEffect(() => {
-    if (!selectedTurf || !selectedFacility || !date) return;
-    setLoadingSlots(true);
-    api
-      .get(`/turfs/${selectedTurf}/availability?date=${date}&facility=${selectedFacility}`)
-      .then((res) => {
-        setAvailableSlots(res.data.data.slots || []);
-      })
-      .catch(() => {
-        setAvailableSlots([]);
-      })
-      .finally(() => setLoadingSlots(false));
-  }, [selectedTurf, selectedFacility, date]);
+    if (!startTime || availabilityQuery.isFetching) return;
+    const start = availableSlots.find(slot => slot.startTime === startTime && slot.isAvailable && !slot.isTimePassed);
+    if (!start || (endTime && !availableInterval(availableSlots, startTime, endTime))) {
+      setStartTime(""); setEndTime("");
+    }
+  }, [availableSlots, availabilityQuery.isFetching, startTime, endTime]);
 
   // Helper function to validate email format
   const validateEmail = (email: string): boolean => {
@@ -81,11 +89,13 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
 
   // Function to search user by phone
   const handleSearchUser = async () => {
+    if (!customerGuard.canEdit() || loadingSlots) return;
     if (!searchPhone || searchPhone.length !== 11) {
       toast.error("Please enter a valid 11-digit phone number");
       return;
     }
 
+    const searchVersion = customerGuard.begin();
     setIsSearchingUser(true);
     setUserSearchError(null);
     setFoundUser(null);
@@ -96,30 +106,32 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
     setEmail("");
 
     try {
-      const res = await api.get(`/admin/users/search?phone=${searchPhone}`);
+      const res = await api.get<DataResponse<User | null>>(`/admin/users/search?phone=${searchPhone}`);
+      if (!customerGuard.isCurrent(searchVersion)) return;
       if (res.data.data) {
         setFoundUser(res.data.data);
-        setPhone(searchPhone); // Set the phone for booking
         toast.success(`User found: ${res.data.data.name}`);
       } else {
         setFoundUser(null);
         toast.info("No user found. Please provide user details below.");
       }
-    } catch (err: any) {
-      if (err.response?.status === 404) {
+    } catch (err: unknown) {
+      if (!customerGuard.isCurrent(searchVersion)) return;
+      if (maintenanceError(err).status === 404) {
         setFoundUser(null);
         toast.info("No user found. Please provide user details below.");
       } else {
-        setUserSearchError(err.response?.data?.message || "Failed to search user");
-        toast.error(err.response?.data?.message || "Failed to search user");
+        setUserSearchError(maintenanceError(err).message || "Failed to search user");
+        toast.error(maintenanceError(err).message || "Failed to search user");
       }
     } finally {
-      setIsSearchingUser(false);
+      if (customerGuard.isCurrent(searchVersion)) setIsSearchingUser(false);
     }
   };
 
   // Check if form is valid for submission
   const isFormValid = (): boolean => {
+    if (isSearchingUser || userSearchError) return false;
     // Must have searched and have valid phone
     if (!hasSearched || !searchPhone || searchPhone.length !== 11) {
       return false;
@@ -141,7 +153,8 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
   // Submit handler
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedTurf || !selectedFacility || !date || !startTime || !endTime) {
+    if (!customerGuard.canEdit() || isSearchingUser || userSearchError) return;
+    if (!permissionReady || !selectedTurf || !selectedFacility || !date || !startTime || !endTime) {
       toast.error("Please fill all required booking fields");
       return;
     }
@@ -170,12 +183,22 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
       return;
     }
     
+    customerGuard.lock();
+    setIsSubmitting(true);
+    const version = selectionVersion.current;
     try {
+      const fresh = await availabilityQuery.refetch();
+      if (version !== selectionVersion.current) return;
+      if (fresh.isError || !availableInterval(fresh.data?.slots ?? [], startTime, endTime)) {
+        setStartTime(""); setEndTime("");
+        toast.error("Availability has changed or could not be verified. Please select the interval again.");
+        return;
+      }
       // Convert empty strings or 0 values to null for totalPayment
       const totalPaymentValue = totalPayment === "" || Number(totalPayment) === 0 ? null : Number(totalPayment);
       
       // Prepare booking payload
-      const bookingPayload: any = {
+      const bookingPayload: ManualBookingPayload = {
         turf: selectedTurf,
         facility: selectedFacility,
         date,
@@ -194,6 +217,7 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
       }
       
       await api.post("/admin/bookings", bookingPayload);
+      await queryClient.invalidateQueries({ queryKey: ["turf-availability", selectedTurf, selectedFacility] });
       toast.success("Manual booking created successfully");
       
       // Reset all form fields
@@ -205,7 +229,6 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
       setTotalPayment("");
       setAdvancePayment(0);
       setSearchPhone("");
-      setPhone("");
       setFoundUser(null);
       setHasSearched(false);
       setFirstName("");
@@ -214,8 +237,15 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
       setUserSearchError(null);
       
       if (onSuccess) onSuccess();
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to create booking");
+    } catch (err: unknown) {
+      if (maintenanceError(err).status === 409) {
+        setStartTime(""); setEndTime("");
+        void availabilityQuery.refetch();
+      }
+      toast.error(maintenanceError(err).message || "Failed to create booking");
+    } finally {
+      customerGuard.unlock();
+      setIsSubmitting(false);
     }
   };
 
@@ -249,7 +279,7 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
       </h2>
 
       {/* User Search Section */}
-      <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
+      <fieldset disabled={isSubmitting || loadingSlots} className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
         <h3 className="text-sm font-semibold mb-3 text-gray-700">Find User</h3>
         <div className="flex gap-3">
           <div className="flex-1">
@@ -257,6 +287,10 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
               type="tel"
               value={searchPhone}
               onChange={(e) => {
+                if (!customerGuard.canEdit() || loadingSlots) return;
+                customerGuard.invalidate();
+                setIsSearchingUser(false);
+                setUserSearchError(null);
                 const v = e.target.value.replace(/\D/g, "").slice(0, 11);
                 setSearchPhone(v);
                 // Reset search state when phone changes
@@ -308,7 +342,7 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
                 <input
                   type="text"
                   value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
+                  onChange={(e) => { if (customerGuard.canEdit() && !loadingSlots) setFirstName(e.target.value); }}
                   placeholder="Enter first name"
                   className="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-emerald-400 focus:ring-emerald-100 text-sm"
                 />
@@ -320,7 +354,7 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
                 <input
                   type="text"
                   value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
+                  onChange={(e) => { if (customerGuard.canEdit() && !loadingSlots) setLastName(e.target.value); }}
                   placeholder="Enter last name"
                   className="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-emerald-400 focus:ring-emerald-100 text-sm"
                 />
@@ -332,7 +366,7 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => { if (customerGuard.canEdit() && !loadingSlots) setEmail(e.target.value); }}
                   placeholder="Enter email address"
                   className={`w-full px-4 py-2 border-2 rounded-xl focus:ring-emerald-100 text-sm ${
                     email && !validateEmail(email)
@@ -354,12 +388,13 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
             <p className="text-sm text-red-800">{userSearchError}</p>
           </div>
         )}
-      </div>
+      </fieldset>
 
       <form
         className="grid grid-cols-1 md:grid-cols-4 gap-4"
         onSubmit={handleSubmit}
       >
+        <fieldset disabled={isSubmitting} className="contents">
         {/* Turf Selection */}
         <div>
           <label className="block text-sm font-medium mb-1">Turf</label>
@@ -367,13 +402,13 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
             <Loader />
           ) : (
             <select
-              value={selectedTurf}
-              onChange={(e) => setSelectedTurf(e.target.value)}
+              value={eligibleTurf}
+              onChange={(e) => { selectionVersion.current++; setSelectedTurf(e.target.value); }}
               className="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-emerald-400 focus:ring-emerald-100 text-sm"
               required
             >
               <option value="">Select Turf</option>
-              {(Array.isArray(turfs) ? turfs : []).map((turf: any) => (
+              {(Array.isArray(turfs) ? turfs : []).map((turf) => (
                 <option key={turf._id} value={turf._id}>
                   {turf.name}
                 </option>
@@ -382,6 +417,14 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
           )}
         </div>
 
+        {turfsQuery.isFetchingNextPage && <p role="status" className="text-sm text-gray-500">Loading more manageable turfs…</p>}
+        {turfsQuery.isError && <div role="alert" className="text-sm text-red-700">Unable to load manageable turfs.
+          <button type="button" className="underline ml-2" onClick={() => { void turfsQuery.refetch(); }}>Retry</button>
+        </div>}
+        {turfsQuery.isSuccess && !hasNextPage && turfs.length === 0 && <p className="text-sm text-gray-500">No manageable turfs are assigned to your account.</p>}
+        {facilitiesQuery.isError && <div role="alert" className="text-sm text-red-700">Unable to load facilities.
+          <button type="button" className="underline ml-2" onClick={() => { void facilitiesQuery.refetch(); }}>Retry</button>
+        </div>}
         {/* Facility Selection */}
         <div>
           <label className="block text-sm font-medium mb-1">Facility</label>
@@ -390,7 +433,7 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
           ) : (
             <select
               value={selectedFacility}
-              onChange={(e) => setSelectedFacility(e.target.value)}
+              onChange={(e) => { selectionVersion.current++; setSelectedFacility(e.target.value); setStartTime(""); setEndTime(""); }}
               className="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-emerald-400 focus:ring-emerald-100 text-sm"
               required
               disabled={!selectedTurf}
@@ -413,12 +456,15 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
           <input
             type="date"
             value={date}
-            onChange={(e) => setDate(e.target.value)}
+            onChange={(e) => { selectionVersion.current++; setDate(e.target.value); setStartTime(""); setEndTime(""); }}
             className="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-emerald-400 focus:ring-emerald-100 text-sm"
             required
           />
         </div>
 
+        {availabilityQuery.isError && <div role="alert" className="md:col-span-4 text-sm text-red-700">
+          Unable to load availability. <button type="button" className="underline" onClick={() => { void availabilityQuery.refetch(); }}>Retry</button>
+        </div>}
         {/* Start Time */}
         <div>
           <label className="block text-sm font-medium mb-1">Start Time</label>
@@ -428,6 +474,7 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
             <select
               value={startTime}
               onChange={(e) => {
+                selectionVersion.current++;
                 setStartTime(e.target.value);
                 setEndTime(""); // reset end time when start time changes
               }}
@@ -451,7 +498,7 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
           <label className="block text-sm font-medium mb-1">End Time</label>
           <select
             value={endTime}
-            onChange={(e) => setEndTime(e.target.value)}
+            onChange={(e) => { selectionVersion.current++; setEndTime(e.target.value); }}
             className="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-emerald-400 focus:ring-emerald-100 text-sm"
             required
           >
@@ -510,10 +557,10 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
         <div className="md:col-span-4 mt-4">
           <button
             type="submit"
-            disabled={!isFormValid()}
+            disabled={!permissionReady || !isFormValid() || loadingSlots || availabilityQuery.isError || isSubmitting}
             className="px-6 py-2 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            Create Manual Booking
+            {isSubmitting ? "Checking booking…" : "Create Manual Booking"}
           </button>
           {!isFormValid() && (
             <p className="text-xs text-gray-500 mt-2">
@@ -525,9 +572,14 @@ const ManualBookingForm = ({ onSuccess }: { onSuccess?: () => void }) => {
             </p>
           )}
         </div>
+        </fieldset>
       </form>
     </div>
   );
 };
 
-export default ManualBookingForm;
+export default function ManualBookingForm(props: { onSuccess?: () => void }) {
+  const userId = authStore(authenticatedUserId);
+  return userId ? <ManualBookingFields key={userId} {...props} />
+    : <p role="alert">Please sign in to create a manual booking.</p>;
+}

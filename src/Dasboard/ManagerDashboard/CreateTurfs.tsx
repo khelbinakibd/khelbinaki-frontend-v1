@@ -113,6 +113,7 @@ const CreateTurfs: React.FC = () => {
       setImageFiles([]);
       setImagePreviews([]);
       queryClient.invalidateQueries({ queryKey: ['admin-turfs'] });
+      queryClient.invalidateQueries({ queryKey: ['turfs-management'] });
     },
     onError: (err: any) => {
       console.error('❌ Error creating turf:', err);

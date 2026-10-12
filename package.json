@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "build:prod": "pnpm type-check && pnpm lint && vite build",
     "type-check": "tsc --noEmit",
+    "test:maintenance": "node --import ./tests/register.mjs --test tests/maintenance.test.tsx",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "preview": "vite preview",

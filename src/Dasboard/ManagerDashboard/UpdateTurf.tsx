@@ -186,6 +186,7 @@ const UpdateTurf: React.FC = () => {
     onSuccess: () => {
       toast.success("Turf updated successfully!");
       queryClient.invalidateQueries({ queryKey: ['admin-turfs'] });
+      queryClient.invalidateQueries({ queryKey: ['turfs-management'] });
       queryClient.invalidateQueries({ queryKey: ['turf', id] });
       navigate('/dashboard/manager/turfs'); // Redirect to turfs list
     },

@@ -1,4 +1,18 @@
 import { z } from "zod";
+import { isValidDateKey } from "../utils/businessTime";
+
+export const maintenanceBlockSchema = z.object({
+  date: z.string().refine(isValidDateKey, "Choose a real date in YYYY-MM-DD format"),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Choose a start time in HH:mm format"),
+  endTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Choose an end time in HH:mm format"),
+  reason: z.string().trim().max(500, "Reason must be 500 characters or fewer").optional(),
+}).superRefine((data, context) => {
+  if (/^([01]\d|2[0-3]):[0-5]\d$/.test(data.startTime)
+    && /^([01]\d|2[0-3]):[0-5]\d$/.test(data.endTime)
+    && data.endTime <= data.startTime) {
+    context.addIssue({ code: "custom", path: ["endTime"], message: "End time must be after start time. Overnight intervals are not supported." });
+  }
+});
 
 // Strong password regex to match backend
 const strongPasswordRegex =

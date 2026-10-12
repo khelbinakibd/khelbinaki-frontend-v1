@@ -29,7 +29,7 @@ export interface ApiResponse<T = any> {
 export interface ApiError {
 	message: string;
 	errors?: Array<{
-		path: string[];
+		path: string | string[];
 		message: string;
 	}>;
 }
@@ -37,6 +37,7 @@ export interface ApiError {
 // User types
 export interface User {
 	_id: string;
+	id?: string; // Authentication responses use id.
 	name: string;
 	email: string;
 	phone?: string;
@@ -123,6 +124,39 @@ export interface TurfAvailability {
 	date: string;
 	dayType: string;
 	slots: AvailabilitySlot[];
+}
+
+// Maintenance endpoints intentionally omit the global ApiResponse.success flag.
+export interface DataResponse<T> {
+  message: string;
+  data: T;
+}
+
+export interface ManageableTurfsResponse extends DataResponse<Turf[]> {
+  meta: { totalItems: number; totalPage: number; currentPage: number; itemsPerPage: number };
+}
+
+export interface MaintenanceBlock {
+  _id: string;
+  facility: string;
+  turf: string;
+  date: string; // UTC ISO timestamp representing Asia/Dhaka midnight.
+  startTime: string;
+  endTime: string;
+  reason?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  releasedAt?: string;
+  releasedBy?: string;
+  releaseReason?: string;
+}
+
+export interface CreateMaintenanceBlockData {
+  date: string; // Dhaka YYYY-MM-DD, never an ISO timestamp.
+  startTime: string;
+  endTime: string;
+  reason?: string;
 }
 
 // Validation Schema Types
